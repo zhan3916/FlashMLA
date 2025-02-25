@@ -1,12 +1,32 @@
-# FlashMLA
+# # FlashMLA on MXMACA
 
-FlashMLA is an efficient MLA decoding kernel for Hopper GPUs, optimized for variable-length sequences serving.
+We provide the implementation of FlashMLA from FlashAttention-2(version 2.6.3), based on MACA toolkit and C500 chips.
 
-Currently released:
-- BF16, FP16
-- Paged kvcache with block size of 64
+FlashAttention-2 currently supports:
+1. Datatype fp16 and bf16.
+2. Multi-Token Parallelism = 1
+3. Paged kvcache with block size equal to 2^n (n >= 0)
 
-## Quick start
+## How to run on MXMACA Device
+## Installation
+
+Requirements:
+- MXMACA GPUs.
+- MACA development toolkit.
+- Mctlass source code.
+- Pytorch2.0 from maca toolkit wheel package and above.
+
+To install flash attn in conda env:
+1. Make sure that maca pyTorch2.0 is installed.
+2. Download mctlass source code from: https://sw-download.metax-tech.com/
+
+### Set environment variables
+```bash
+export MACA_PATH=/your/maca/path
+export CUDA_PATH=$MACA_PATH/tools/cu-bridge
+export MACA_CLANG_PATH=$MACA_PATH/mxgpu_llvm/bin
+export LD_LIBRARY_PATH=$MACA_PATH/lib:$MACA_PATH/mxgpu_llvm/lib:$MACA_PATH/ompi/lib:$LD_LIBRARY_PATH
+```
 
 ### Install
 
@@ -19,8 +39,6 @@ python setup.py install
 ```bash
 python tests/test_flash_mla.py
 ```
-
-Achieving up to 3000 GB/s in memory-bound configuration and 580 TFLOPS in computation-bound configuration on H800 SXM5, using CUDA 12.6.
 
 ### Usage
 
@@ -40,13 +58,14 @@ for i in range(num_layers):
 
 ## Requirements
 
-- Hopper GPUs
-- CUDA 12.3 and above
+- MXMACA 2.27 and above
 - PyTorch 2.0 and above
 
 ## Acknowledgement
 
 FlashMLA is inspired by [FlashAttention 2&3](https://github.com/dao-AILab/flash-attention/) and [cutlass](https://github.com/nvidia/cutlass) projects.
+
+
 
 ## Citation
 
