@@ -1,4 +1,4 @@
-# # FlashMLA on MXMACA
+# FlashMLA on MXMACA
 
 We provide the implementation of FlashMLA from FlashAttention-2(version 2.6.3), based on MACA toolkit and C500 chips.
 
