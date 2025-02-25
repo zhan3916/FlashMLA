@@ -7,7 +7,7 @@
 
 #include <mctlass/fast_math.h>
 
-#include "flash_api_mla.h"
+#include "flash_mla.h"
 #include "static_switch.h"
 #include "run_mha.h"
 
@@ -25,8 +25,6 @@ get_mla_metadata(
     static constexpr int block_size_m = 64;
     static constexpr int block_size_n = 64;
     static constexpr int fixed_overhead_num_blocks = 5;
-
-    printf("%s,num_heads_per_head_k:%d,num_heads_k:%d\n",__func__,num_heads_per_head_k,num_heads_k);
 
     CHECK_DEVICE(seqlens_k);
     TORCH_CHECK(seqlens_k.is_contiguous());
@@ -98,23 +96,26 @@ mha_fwd_kvcache_mla(
     const int seqlen_q_ori = sizes[1];
     const int num_heads_ori = sizes[2];
     const int head_size = sizes[3];
+    const int num_heads_k = kcache.size(2);
     TORCH_CHECK(head_size % 8 == 0, "head_size should be a multiple of 8");
     TORCH_CHECK(head_size_v % 32 == 0, "head_size_v should be a multiple of 32");
 
     const int max_num_blocks_per_seq = block_table.size(1);
     const int num_blocks = kcache.size(0);
     const int page_block_size = kcache.size(1);
-    const int num_heads_k = kcache.size(2);
     TORCH_CHECK(batch_size > 0, "batch size must be postive");
     TORCH_CHECK(num_heads_ori % num_heads_k == 0, "Number of heads in key/value must divide number of heads in query");
 
     if (seqlen_q_ori == 1) { is_causal = false; }
-
+    int seqlen_q = seqlen_q_ori;
+    int num_heads = num_heads_ori;
     const int ngroups = num_heads_ori / num_heads_k;
-    const int seqlen_q = seqlen_q_ori * ngroups;
-    const int num_heads = num_heads_k;
-    q = q.view({batch_size, seqlen_q_ori, num_heads_k, ngroups, head_size}).transpose(2, 3)
-            .reshape({batch_size, seqlen_q, num_heads, head_size});
+    if (seqlen_q_ori == 1) {
+        seqlen_q = seqlen_q_ori * ngroups;
+        num_heads = num_heads_k;
+        q = q.view({batch_size, seqlen_q_ori, num_heads_k, ngroups, head_size}).transpose(2, 3)
+                .reshape({batch_size, seqlen_q, num_heads, head_size});
+    }
 
     int head_size_k = head_size;
     CHECK_SHAPE(q, batch_size, seqlen_q, num_heads, head_size);
@@ -134,7 +135,7 @@ mha_fwd_kvcache_mla(
     at::Tensor out = torch::empty({batch_size, seqlen_q, num_heads, head_size_v}, opts);
     at::Tensor softmax_lse = torch::empty({batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
 
-    mcFlashAttn::Flash_fwd_params params = {};
+    mcFlashAttn::Flash_fwd_mla_params params = {};
     params.rotary_dim = 0;
     // Set the sizes.
     params.b = batch_size;
@@ -143,12 +144,10 @@ mha_fwd_kvcache_mla(
     params.is_seqlens_k_cumulative = false; // seqlens_k always has value
     params.h = num_heads;
     params.h_h_k_ratio = num_heads / num_heads_k;
-    // params.ngroups = ngroups; to be check
+    // params.ngroups = ngroups;
     params.is_causal = is_causal;
     params.d = head_size;
-    params.d_rounded = head_size;
-    params.d_value = head_size_v;
-    params.d_value_rounded = head_size_v;
+    params.d_v = head_size_v;
     params.scale_softmax = softmax_scale;
     params.scale_softmax_log2 = float(softmax_scale * M_LOG2E);
     // Set the pointers and strides.
@@ -187,28 +186,28 @@ mha_fwd_kvcache_mla(
     // params.num_splits_ptr = num_splits.data_ptr<int>();
 
     params.num_splits = 1;
-    at::Tensor softmax_lse_accum = torch::empty({params.num_splits, batch_size, num_heads, seqlen_q}, opts.dtype(torch::kFloat32));
+at::Tensor softmax_lse_accum = torch::empty({params.num_splits, batch_size, num_heads, seqlen_q}, opts.dtype(torch::kFloat32));
     at::Tensor out_accum = torch::empty({params.num_splits, batch_size, num_heads, seqlen_q, head_size_v}, opts.dtype(torch::kFloat32));
     params.softmax_lseaccum_ptr = softmax_lse_accum.data_ptr();
     params.oaccum_ptr = out_accum.data_ptr();
 
     auto stream = at::cuda::getCurrentCUDAStream().stream();
     TORCH_CHECK(head_size == 576);
-    // run_mha_fwd_splitkv_mla<mctlass::bfloat16_t, 576>(params, stream);
-
+    // run_mha_fwd_splitkv_mla<cutlass::bfloat16_t, 576>(params, stream);
     params.is_bf16 = true;
     run_mha_fwd(params,stream, /*force_split_kernel*/true);
-
-    out = out.view({batch_size, seqlen_q_ori, ngroups, num_heads_k, head_size_v}).transpose(2, 3)
-            .reshape({batch_size, seqlen_q_ori, num_heads_ori, head_size_v});
-    softmax_lse = softmax_lse.view({batch_size, num_heads_k, seqlen_q_ori, ngroups}).transpose(2, 3)
-            .reshape({batch_size, num_heads_ori, seqlen_q_ori});
-
+    if (seqlen_q_ori == 1) {
+        out = out.view({batch_size, seqlen_q_ori, ngroups, num_heads_k, head_size_v}).transpose(2, 3)
+                .reshape({batch_size, seqlen_q_ori, num_heads_ori, head_size_v});
+        softmax_lse = softmax_lse.view({batch_size, num_heads_k, seqlen_q_ori, ngroups}).transpose(2, 3)
+                .reshape({batch_size, num_heads_ori, seqlen_q_ori});
+    }
     return {out, softmax_lse};
 }
 
-// PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-//     m.doc() = "FlashMLA";
-//     m.def("get_mla_metadata", &get_mla_metadata);
-//     m.def("fwd_kvcache_mla", &mha_fwd_kvcache_mla);
-// }
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+    m.doc() = "FlashAttention";
+    //FlashMLA
+    m.def("get_mla_metadata", &get_mla_metadata);
+    m.def("fwd_kvcache_mla", &mha_fwd_kvcache_mla);
+}

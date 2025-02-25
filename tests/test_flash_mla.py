@@ -3,6 +3,7 @@ import random
 
 import torch
 import triton
+import pytest
 
 # from flash_mla import get_mla_metadata, flash_mla_with_kvcache
 from flash_attn import (
@@ -98,6 +99,19 @@ def test_flash_mla(b, s_q, mean_sk, h_q, h_kv, d, dv, causal, varlen, block_size
     print(f"{t:.3f} ms, {FLOPS / 10 ** 9 / t:.0f} TFLOPS, {bytes / 10 ** 6 / t:.0f} GB/s")
 
 
+@pytest.mark.parametrize("b",[128])
+@pytest.mark.parametrize("s_q",[1,2])
+@pytest.mark.parametrize("mean_sk",[4096, 8192])
+@pytest.mark.parametrize("h_q",[16, 32, 64, 128])
+@pytest.mark.parametrize("h_kv",[1])
+@pytest.mark.parametrize("d",[576])
+@pytest.mark.parametrize("dv",[512])
+@pytest.mark.parametrize("causal",[True])
+@pytest.mark.parametrize("varlen",[True,False])
+@pytest.mark.parametrize("block_size",[1,4,16,64])
+def test_flash_mla_checkin(b, s_q, mean_sk, h_q, h_kv, d, dv, causal, varlen, block_size):
+    test_flash_mla(b, s_q, mean_sk, h_q, h_kv, d, dv, causal, varlen, block_size)
+
 if __name__ == "__main__":
     dtype = torch.bfloat16
     device = torch.device("cuda:0")
@@ -114,6 +128,6 @@ if __name__ == "__main__":
         for b in [128]:
             for s in [4096, 8192]:
                 for h_q in [16, 32, 64, 128]:  # TP = 8, 4, 2, 1
-                    for s_q in [1]:  # TODO: to support MTP=2
+                    for s_q in [1, 2]:  # MTP =1, 2
                         for varlen in [False, True]:
                             test_flash_mla(b, s_q, s, h_q, h_kv, d, dv, causal, varlen, block_size)

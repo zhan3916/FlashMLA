@@ -13,11 +13,11 @@ FlashAttention-2 currently supports:
 Requirements:
 - MXMACA GPUs.
 - MACA development toolkit.
-- Mctlass source code.
-- Pytorch2.0 from maca toolkit wheel package and above.
+- mcTlass source code.
+- mcPytorch2.1 and mcTriton2.1 from maca toolkit wheel package and above.
 
-To install flash attn in conda env:
-1. Make sure that maca pyTorch2.0 is installed.
+To install:
+1. Make sure that maca pyTorch2.1 is installed.
 2. Download mctlass source code from: https://sw-download.metax-tech.com/
 
 ### Set environment variables

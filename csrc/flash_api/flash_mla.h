@@ -40,7 +40,7 @@ struct Qkv_params {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct Flash_fwd_params : public Qkv_params {
+struct Flash_fwd_mla_params : public Qkv_params {
 
     // The O matrix (output).
     void * __restrict__ o_ptr;
@@ -59,7 +59,7 @@ struct Flash_fwd_params : public Qkv_params {
     void * __restrict__ softmax_lseaccum_ptr;
 
     // The dimensions.
-    int b, seqlen_q, seqlen_k, seqlen_knew, d, seqlen_q_rounded, seqlen_k_rounded, d_rounded, rotary_dim, total_q;
+    int b, seqlen_q, seqlen_k, seqlen_knew, d, d_v, seqlen_q_rounded, seqlen_k_rounded, d_rounded, rotary_dim, total_q;
 
     // The scaling factors for the kernel.
     float scale_softmax;
@@ -174,50 +174,6 @@ struct Flash_fwd_params : public Qkv_params {
     bool is_support_splitkv = false;
 };
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-struct Flash_bwd_params : public Flash_fwd_params {
-
-    // The dO and dQKV matrices.
-    void *__restrict__ do_ptr;
-    void *__restrict__ dq_ptr;
-    void *__restrict__ dk_ptr;
-    void *__restrict__ dv_ptr;
-
-    // To accumulate dQ
-    void *__restrict__ dq_accum_ptr;
-    void *__restrict__ dk_accum_ptr;
-    void *__restrict__ dv_accum_ptr;
-
-    // // To accumulate dK and dV in case we're splitting the bwd along seqlen_q
-    // dimension void *__restrict__ dk_accum_ptr; void *__restrict__
-    // dv_accum_ptr;
-
-    // The stride between rows of the dO, dQ, dK and dV matrices.
-    // The code probably won't work for arrays larger than 2GB.
-    index_t do_batch_stride;
-    index_t do_row_stride;
-    index_t do_head_stride;
-    index_t dq_batch_stride;
-    index_t dk_batch_stride;
-    index_t dv_batch_stride;
-    index_t dq_row_stride;
-    index_t dk_row_stride;
-    index_t dv_row_stride;
-    index_t dq_head_stride;
-    index_t dk_head_stride;
-    index_t dv_head_stride;
-
-    // The pointer to the softmax d sum.
-    void *__restrict__ dsoftmax_sum;
-
-    bool deterministic;
-    index_t dq_accum_split_stride;
-
-    // asm mha_bwd kernel needs packed_seqlen
-    int packed_seqlen;
-};
-
 
 struct Flash_launch_params {
     bool is_balance;
@@ -231,3 +187,20 @@ struct Flash_launch_params {
 };
 
 }
+
+static constexpr int TileSchedulerMetaDataSize = 8;
+// [begin_idx, begin_seqlen, end_idx, end_seqlen, begin_n_split_idx, _, _, _]
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+struct Mla_metadata_params {
+    int *__restrict__ seqlens_k_ptr;
+    int *__restrict__ tile_scheduler_metadata_ptr;
+    int *__restrict__ num_splits_ptr;
+    int batch_size;
+    int block_size_n;
+    int fixed_overhead_num_blocks;
+    int num_sm_parts;
+};
+
+void get_mla_metadata_func(Mla_metadata_params &params, cudaStream_t stream);
